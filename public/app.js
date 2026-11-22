@@ -639,6 +639,11 @@ function buildEmoteUi() {
   $('#btn-key').addEventListener('click', () => openCodeDialog());
   $('#access-ok').addEventListener('click', submitAccessCode);
   $('#access-code').addEventListener('keydown', (e) => e.key === 'Enter' && submitAccessCode());
+  $('#access-copylink').addEventListener('click', async () => {
+    if (!S.searchCode) return;
+    const link = location.origin + '/#k=' + encodeURIComponent(S.searchCode);
+    try { await navigator.clipboard.writeText(link); toast(t('access.linkCopied')); } catch { toast(link); }
+  });
   $('#access-cancel').addEventListener('click', () => { S.pendingQuery = null; $('#code-dialog').close(); });
   $('#access-forget').addEventListener('click', () => {
     S.searchCode = null;
@@ -674,16 +679,18 @@ const kbEnabled = () => S.nativeControls && canControl();
 function initPlayer() {
   if (S.player || !S.ytReady || !window.YT || !YT.Player) return;
   S.kbOn = kbEnabled();
-  S.player = new YT.Player('player', {
+  // Cada reproductor sabe quién es: si llega un aviso de uno viejo (ya reemplazado), se ignora.
+  const pl = new YT.Player('player', {
     width: '100%',
     height: '100%',
     playerVars: { controls: S.nativeControls ? 1 : 0, disablekb: S.kbOn ? 0 : 1, fs: 0, rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3, origin: location.origin },
     events: {
-      onReady: () => { S.playerReady = true; S.syncOkAt = Date.now(); S.player.setVolume(S.volume); hideBanner(); syncPlayer(); },
-      onStateChange: onPlayerState,
-      onError: onPlayerError,
+      onReady: () => { if (S.player !== pl) return; S.playerReady = true; S.syncOkAt = Date.now(); S.player.setVolume(S.volume); hideBanner(); syncPlayer(); },
+      onStateChange: (e) => { if (S.player === pl) onPlayerState(e); },
+      onError: (e) => { if (S.player === pl) onPlayerError(e); },
     },
   });
+  S.player = pl;
 }
 
 function serverNow() { return Date.now() + S.offset; }
@@ -795,10 +802,14 @@ function setNativeControls(on) {
 }
 /** Los controles y el teclado se definen al crear el reproductor: se vuelve a crear y la sala lo deja en el mismo punto. */
 function recreatePlayer() {
-  try { S.player.destroy(); } catch {}
+  const old = S.player;
   S.player = null;
   S.playerReady = false;
   S.curItemId = null;
+  // Mientras el reproductor carga, la API de YouTube todavía no tiene destroy(): fallaba en silencio y el iframe viejo quedaba
+  // apilado encima del nuevo (controles que no responden, audio doble). Por eso, además, se saca del DOM a mano todo lo que haya.
+  try { if (old && old.destroy) old.destroy(); } catch {}
+  document.querySelectorAll('.player-wrap > iframe, .player-wrap > #player').forEach((n) => n.remove());
   $('.player-wrap').prepend(el('div', { id: 'player' }));
   initPlayer();
 }
@@ -947,7 +958,11 @@ function onAddSubmit(e) {
     return;
   }
   if (!S.searchEnabled) return toast(t('add.noSearch'), 'error');
-  if (S.needsCode && !S.searchCode) { S.pendingQuery = v; return openCodeDialog(); }
+  if (S.needsCode && !S.searchCode) {
+    // quizá el dueño abrió el buscador a los invitados después de que cargué la página
+    loadConfig().then(() => { if (S.needsCode && !S.searchCode) { S.pendingQuery = v; openCodeDialog(); } else runSearch(v); });
+    return;
+  }
   runSearch(v);
 }
 
@@ -956,8 +971,26 @@ async function loadConfig() {
     const c = await (await fetch('/api/config', { cache: 'no-store' })).json();
     S.searchEnabled = !!c.search;
     S.needsCode = !!c.needsCode;
+    S.ownerCanToggle = !!c.ownerCanToggle;
+    S.guestsOpen = !!c.guestsOpen;
   } catch { S.searchEnabled = false; S.needsCode = false; }
   updateAddPlaceholder();
+  $('#owner-search').classList.toggle('hidden', !S.ownerCanToggle);
+  $('#set-guest-search').checked = !!S.guestsOpen;
+  await applyHashKey();
+}
+/** Si llegó un código en el link (#k=...), lo valida y lo guarda como si lo hubiera escrito. */
+async function applyHashKey() {
+  const code = S.pendingHashKey;
+  S.pendingHashKey = null;
+  if (!code || !S.needsCode) return;
+  let r = { ok: false };
+  try { r = await (await fetch('/api/search-auth', { cache: 'no-store', headers: { 'X-Access-Code': code } })).json(); } catch {}
+  if (!r.ok) return toast(t('access.bad'), 'error');
+  S.searchCode = code;
+  store.set('searchCode', code);
+  updateAddPlaceholder();
+  toast(t('access.good', { label: r.label || '' }));
 }
 function updateAddPlaceholder() {
   $('#add-url').placeholder = S.searchEnabled ? t('add.phSearch') : t('add.phLink');
@@ -972,6 +1005,7 @@ function openCodeDialog(msg) {
   m.classList.toggle('hidden', !msg);
   $('#access-code').value = '';
   $('#access-forget').classList.toggle('hidden', !S.searchCode);
+  $('#access-copylink').classList.toggle('hidden', !S.searchCode);
   $('#code-dialog').showModal();
 }
 async function submitAccessCode() {
@@ -1109,11 +1143,18 @@ function init() {
   buildEmoteUi();
   document.querySelectorAll('.lang-sel').forEach((sel) => sel.addEventListener('change', () => setLanguage(sel.value)));
 
-  // link de invitación: /#CODIGO
-  const h = location.hash.replace('#', '').toUpperCase();
+  // link de invitación: /#CODIGO  (y opcional /#k=MI-CODIGO-DE-BUSQUEDA, o /#CODIGO&k=...)
+  // El navegador guarda el código por dirección: con el túnel rápido la dirección cambia cada día, así que este link lo vuelve a cargar.
+  const hashParts = location.hash.replace('#', '').split('&').filter(Boolean);
+  const hashKey = (hashParts.find((x) => x.startsWith('k=')) || '').slice(2);
+  const h = (hashParts.find((x) => !x.includes('=')) || '').toUpperCase();
   if (/^[A-Z0-9]{4,8}$/.test(h)) {
     $('#join-code').value = h;
     toast(t('lobby.invited'));
+  }
+  if (hashKey) {
+    try { history.replaceState(null, '', location.pathname + (h ? '#' + h : '')); } catch {} // el código no queda a la vista en la barra
+    S.pendingHashKey = decodeURIComponent(hashKey);
   }
 
   $('#btn-create').addEventListener('click', () => {
@@ -1170,6 +1211,15 @@ function init() {
   $('#btn-theme').addEventListener('click', openThemeDialog);
   $('#btn-settings').addEventListener('click', () => { $('#set-everyone').checked = !!S.room.settings.everyoneQueue; $('#settings-dialog').showModal(); });
   $('#settings-close').addEventListener('click', () => $('#settings-dialog').close());
+  $('#set-guest-search').addEventListener('change', async (e) => {
+    const want = e.target.checked;
+    let r = { ok: false };
+    try { r = await (await fetch('/api/search-open?open=' + (want ? 1 : 0), { method: 'POST', cache: 'no-store' })).json(); } catch {}
+    if (!r.ok) { e.target.checked = !want; return toast(t('settings.guestSearchFail'), 'error'); }
+    S.guestsOpen = r.guestsOpen;
+    toast(t(r.guestsOpen ? 'settings.guestSearchOn' : 'settings.guestSearchOff'));
+  });
+  $('#btn-settings').addEventListener('click', () => loadConfig());
   $('#set-everyone').addEventListener('change', (e) => send({ type: 'settings', everyoneQueue: e.target.checked }));
 
   $('#add-form').addEventListener('submit', onAddSubmit);
