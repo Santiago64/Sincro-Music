@@ -1,0 +1,26 @@
+{
+  "name": "sincro-music",
+  "version": "1.0.0",
+  "description": "Salas para escuchar YouTube / YT Music sincronizado con tus amigos, sin cuentas.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/protocol.test.js",
+    "test:ui": "node test/ui.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Santiago64/Sincro-Music"
+  },
+  "keywords": "[\"youtube\",\"listen-together\",\"sync\",\"discord\",\"websocket\"]",
+  "devDependencies": {
+    "jsdom": "^31.0.1"
+  }
+}

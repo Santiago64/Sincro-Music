@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="color-scheme" content="dark light">
+  <title>Sincro</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎧%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <div id="toasts" aria-live="polite"></div>
+
+  <!-- ============ LOBBY ============ -->
+  <main id="view-lobby" class="view">
+    <div class="lang-row"><select class="lang-sel" id="lang-lobby" aria-label="Idioma / Language" title="Idioma / Language"><option value="es">Español</option><option value="en">English</option></select></div>
+    <header class="hero">
+      <h1>🎧 Sincro</h1>
+      <p data-i18n-html="hero.sub"></p>
+    </header>
+
+    <section class="card">
+      <label class="field"><span data-i18n="lobby.nick"></span>
+        <input id="nick" maxlength="20" data-i18n-placeholder="lobby.nickPh" autocomplete="off">
+      </label>
+    </section>
+
+    <div class="cols">
+      <section class="card">
+        <h2 data-i18n="lobby.create"></h2>
+        <label class="field"><span data-i18n="lobby.roomName"></span>
+          <input id="room-name" maxlength="40" data-i18n-placeholder="lobby.roomNamePh" autocomplete="off">
+        </label>
+        <label class="check"><input type="checkbox" id="room-public"> <span data-i18n="lobby.public"></span></label>
+        <button id="btn-create" class="primary" data-i18n="lobby.create"></button>
+      </section>
+
+      <section class="card">
+        <h2 data-i18n="lobby.joinTitle"></h2>
+        <label class="field"><span data-i18n="lobby.code"></span>
+          <input id="join-code" maxlength="8" data-i18n-placeholder="lobby.codePh" autocomplete="off" spellcheck="false">
+        </label>
+        <button id="btn-join" class="primary" data-i18n="lobby.enter"></button>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2><span data-i18n="lobby.publicRooms"></span> <small class="muted" data-i18n="lobby.autoUpdate"></small></h2>
+      <div id="public-rooms" class="rooms"></div>
+    </section>
+
+    <footer class="muted" data-i18n="lobby.footer"></footer>
+  </main>
+
+  <!-- ============ SALA ============ -->
+  <main id="view-room" class="view hidden">
+    <div id="conn-banner" class="banner hidden"></div>
+
+    <header class="topbar">
+      <div class="title">
+        <strong id="room-title"></strong>
+        <span id="room-badge" class="pill"></span>
+      </div>
+      <div class="actions">
+        <button id="btn-code" class="ghost" data-i18n-title="room.codeTitle"><span data-i18n="room.codeWord"></span> <b id="room-code"></b> 📋</button>
+        <button id="btn-link" class="ghost" data-i18n-title="room.linkTitle" data-i18n="room.link"></button>
+        <button id="btn-settings" class="ghost hidden" data-i18n="room.settings"></button>
+        <button id="btn-theme" class="ghost" data-i18n="room.theme"></button>
+        <select class="lang-sel" id="lang-room" aria-label="Idioma / Language" title="Idioma / Language"><option value="es">Español</option><option value="en">English</option></select>
+        <button id="btn-leave" class="ghost danger" data-i18n="room.leave"></button>
+      </div>
+    </header>
+
+    <div class="room-grid">
+      <section class="stage">
+        <div id="fs-root" class="fs-root">
+        <div class="player-wrap">
+          <div id="player"></div>
+          <div id="player-shield"></div>
+          <div id="idle" class="idle">
+            <div>
+              <div class="big">🎶</div>
+              <p data-i18n="room.nothing"></p>
+              <small id="idle-hint" class="muted"></small>
+            </div>
+          </div>
+          <button id="unlock" class="primary hidden" data-i18n="room.unlock"></button>
+          <div id="float-layer"></div>
+          <button id="btn-fs" class="fs-btn" data-i18n-title="room.fsTitle">⛶</button>
+          <div id="fs-bar" class="fs-bar"><span id="fs-title"></span><span id="fs-react"></span></div>
+        </div>
+        <button id="fs-chat-tab" class="fs-chat-tab" data-i18n-title="fs.chatToggle">💬</button>
+        <aside id="fs-chat" class="fs-chat">
+          <div class="fs-chat-head"><h3 data-i18n="chat.title"></h3><button type="button" id="btn-fs-chat" class="mini" data-i18n-title="fs.chatToggle">✕</button></div>
+          <div id="fs-chat-log"></div>
+          <form id="fs-chat-form" autocomplete="off">
+            <input id="fs-chat-input" maxlength="300" data-i18n-placeholder="chat.placeholder">
+            <button class="primary" data-i18n="chat.send"></button>
+          </form>
+        </aside>
+        </div>
+
+        <div class="card nowplaying">
+          <div class="np-info">
+            <div id="np-title" class="np-title">—</div>
+            <div id="np-by" class="muted"></div>
+          </div>
+          <div class="np-controls">
+            <button id="btn-playpause" class="round" data-i18n-title="np.playPause">▶</button>
+            <button id="btn-next" class="round" data-i18n-title="np.next">⏭</button>
+            <input id="seek" type="range" min="0" max="1000" value="0">
+            <span id="time" class="muted">0:00 / 0:00</span>
+            <button id="btn-yt" class="mini" data-i18n-title="np.ytTitle">CC · HD</button>
+            <label class="vol" data-i18n-title="np.volume">🔊<input id="vol" type="range" min="0" max="100" value="80"></label>
+          </div>
+          <div class="react-row">
+            <div id="react-bar" class="react-bar"></div>
+            <div id="react-counts" class="react-counts"></div>
+          </div>
+        </div>
+
+        <section class="card queue">
+          <h3><span data-i18n="queue.title"></span> <span id="queue-count" class="muted"></span></h3>
+          <form id="add-form" autocomplete="off">
+            <input id="add-url" data-i18n-placeholder="add.phLink">
+            <select id="add-where" data-i18n-title="queue.whereTitle">
+              <option value="end" data-i18n="queue.atEnd"></option>
+              <option value="next" data-i18n="queue.asNext"></option>
+            </select>
+            <button type="button" id="btn-key" class="mini hidden" data-i18n-title="access.btnTitle">🔑</button>
+            <button class="primary" data-i18n="queue.add"></button>
+          </form>
+          <p id="add-note" class="muted hidden"></p>
+          <div id="search-results" class="results hidden"></div>
+          <ul id="queue-list"></ul>
+        </section>
+
+        <section class="card history">
+          <h3><span data-i18n="history.title"></span> <span id="history-count" class="muted"></span></h3>
+          <ul id="history-list"></ul>
+        </section>
+      </section>
+
+      <aside class="side">
+        <section class="card members">
+          <h3><span data-i18n="members.title"></span> <span id="member-count" class="muted"></span></h3>
+          <ul id="member-list"></ul>
+        </section>
+        <section class="card chat">
+          <h3 data-i18n="chat.title"></h3>
+          <div id="chat-log"></div>
+          <div id="emote-picker" class="emote-picker hidden"></div>
+          <form id="chat-form" autocomplete="off">
+            <button type="button" id="btn-emote" class="mini" data-i18n-title="emote.btnTitle" data-i18n="emote.btn"></button>
+            <input id="chat-input" maxlength="300" data-i18n-placeholder="chat.placeholder">
+            <button class="primary" data-i18n="chat.send"></button>
+          </form>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <!-- ============ Estilo ============ -->
+  <dialog id="theme-dialog">
+    <h3 data-i18n="theme.title"></h3>
+    <p class="muted" id="theme-help"></p>
+    <div id="presets" class="presets"></div>
+    <div class="color-grid">
+      <label><span data-i18n="theme.bg"></span> <input type="color" data-k="bg"></label>
+      <label><span data-i18n="theme.panel"></span> <input type="color" data-k="panel"></label>
+      <label data-i18n-title="theme.textTitle"><span data-i18n="theme.text"></span> <input type="color" data-k="text"></label>
+      <label><span data-i18n="theme.accent1"></span> <input type="color" data-k="accent"></label>
+      <label><span data-i18n="theme.accent2"></span> <input type="color" data-k="accent2"></label>
+    </div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px" data-i18n-html="theme.note"></p>
+    <p id="theme-warn" class="warn hidden" data-i18n="theme.warn"></p>
+    <h4 class="sect" data-i18n="chat.section"></h4>
+    <p class="muted" style="font-size:13px;margin:0 0 6px" data-i18n="chat.sectionHelp"></p>
+    <div class="chat-color">
+            <label data-i18n-title="chat.myColorTitle"><span data-i18n="chat.myColor"></span> <input type="color" id="chat-color" value="#9d8cff"></label>
+            <button type="button" id="chat-color-auto" class="mini" data-i18n-title="chat.autoTitle" data-i18n="chat.auto"></button>
+            <label data-i18n-title="chat.myTextColorTitle"><span data-i18n="chat.myTextColor"></span> <input type="color" id="text-color" value="#e8eaf0"></label>
+            <button type="button" id="text-color-auto" class="mini" data-i18n-title="chat.autoTextTitle" data-i18n="chat.auto"></button>
+          </div>
+    <div class="chat-preview"><b id="cp-nick"></b>: <span id="cp-text" data-i18n="chat.preview"></span></div>
+    <label class="check"><input type="checkbox" id="use-mine"> <span data-i18n="theme.useMine"></span></label>
+    <div class="dialog-actions">
+      <button id="theme-apply-room" class="primary" data-i18n="theme.applyRoom"></button>
+      <button id="theme-save-mine" data-i18n="theme.saveMine"></button>
+      <button id="theme-close" class="ghost" data-i18n="theme.close"></button>
+    </div>
+  </dialog>
+
+  <!-- ============ Ajustes de sala ============ -->
+  <dialog id="settings-dialog">
+    <h3 data-i18n="settings.title"></h3>
+    <label class="check"><input type="checkbox" id="set-everyone"> <span data-i18n="settings.everyone"></span></label>
+    <label class="check"><input type="checkbox" id="set-emotes"> <span data-i18n="settings.emotes"></span></label>
+    <p class="muted" data-i18n="settings.everyoneNote"></p>
+    <div class="dialog-actions"><button id="settings-close" class="ghost" data-i18n="settings.close"></button></div>
+  </dialog>
+
+  <!-- ============ Emotes ============ -->
+  <dialog id="emote-dialog">
+    <h3 data-i18n="emote.dialogTitle"></h3>
+    <p class="muted" data-i18n="emote.help"></p>
+    <div id="emote-admin-form">
+      <label class="field"><span data-i18n="emote.file"></span> <input type="file" id="emote-file" accept="image/png"></label>
+      <div class="emote-preview"><img id="emote-preview" alt="" class="emote big hidden"></div>
+      <label class="field"><span data-i18n="emote.name"></span> <input id="emote-name" maxlength="20" data-i18n-placeholder="emote.namePh" autocomplete="off" spellcheck="false"></label>
+      <button id="emote-upload" class="primary" data-i18n="emote.upload"></button>
+    </div>
+    <p id="emote-noperm" class="muted hidden" data-i18n="emote.noPerm"></p>
+    <ul id="emote-list" class="emote-list"></ul>
+    <div class="dialog-actions"><button id="emote-close" class="ghost" data-i18n="theme.close"></button></div>
+  </dialog>
+
+  <!-- ============ Código de acceso a la búsqueda ============ -->
+  <dialog id="code-dialog">
+    <h3 data-i18n="access.title"></h3>
+    <p class="muted" data-i18n="access.help"></p>
+    <label class="field"><span data-i18n="access.code"></span> <input id="access-code" autocomplete="off" spellcheck="false"></label>
+    <p id="access-msg" class="warn hidden"></p>
+    <div class="dialog-actions">
+      <button id="access-ok" class="primary" data-i18n="access.ok"></button>
+      <button id="access-forget" data-i18n="access.forget"></button>
+      <button id="access-cancel" class="ghost" data-i18n="access.cancel"></button>
+    </div>
+  </dialog>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
