@@ -1,0 +1,15 @@
+name: 💡 Proponer una idea / Feature request
+description: Una función nueva o una mejora / A new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: ¿Qué te gustaría que haga? / What would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: uso
+    attributes:
+      label: ¿Para qué lo usarías? / How would you use it?
+      description: "Ej: para jugar rol, para escuchar con amigos, ... / e.g. tabletop RPG, listening with friends"
