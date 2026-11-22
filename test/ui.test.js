@@ -364,6 +364,7 @@ const click = (c, sel) => c.$(sel).dispatchEvent(new c.w.MouseEvent('click', { b
   D.w.eval('S.room.settings.everyoneQueue = true; renderRoom();');
   D.$('#add-url').value = 'una cancion';
   D.$('#add-form').dispatchEvent(new D.w.Event('submit', { bubbles: true, cancelable: true }));
+  await sleep(150);
   ok(D.$('#code-dialog').hasAttribute('open'), 'buscar sin código abre el diálogo de código');
   D.$('#access-code').value = 'codigo-malo-xx';
   click(D, '#access-ok');

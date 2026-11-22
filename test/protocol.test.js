@@ -3,6 +3,7 @@
 process.env.GRACE_MS = '400';
 process.env.YOUTUBE_API_KEY = 'test-key';
 process.env.SEARCH_DAILY_MAX = '3';
+process.env.LOCAL_OWNER_SEARCH = '0'; // los clientes de prueba son locales: se simula un visitante remoto salvo en el bloque "dueño"
 process.env.SEARCH_ACCESS_CODES = 'ana:codigo-ana-123,beto:codigo-beto-456,corto:abc';
 const assert = require('assert');
 const WebSocket = require('ws');
@@ -263,7 +264,7 @@ const eq = (a, b, label) => { assert.deepStrictEqual(a, b, label); passed++; con
 
   const getJsonA = (p) => getJson(p, { 'x-access-code': 'codigo-ana-123' });
   console.log('buscador');
-  eq(await getJson('/api/config'), { search: true, needsCode: true }, 'con API key y códigos, la búsqueda está activa pero pide código');
+  eq(await getJson('/api/config'), { search: true, needsCode: true, ownerCanToggle: false, guestsOpen: false }, 'con API key y códigos, la búsqueda está activa pero pide código');
   eq((await getJson('/api/search?q=Hola%20Mundo')).error, 'auth', 'sin código de acceso no se puede buscar');
   eq((await getJson('/api/search?q=Hola%20Mundo', { 'x-access-code': 'codigo-mal-123' })).error, 'auth', 'con código incorrecto tampoco');
   ok(apiSearchCalls === 0, 'los intentos sin código no gastan cuota de YouTube');
@@ -283,6 +284,33 @@ const eq = (a, b, label) => { assert.deepStrictEqual(a, b, label); passed++; con
   let lastErr = null;
   for (let i = 0; i < 15 && lastErr !== 'rate'; i++) lastErr = (await getJsonA('/api/search?q=spam' + i)).error;
   eq(lastErr, 'rate', 'límite de búsquedas por minuto y por IP');
+
+  console.log('dueño (localhost)');
+  process.env.LOCAL_OWNER_SEARCH = '1';
+  const ownerCfg = await getJson('/api/config');
+  eq([ownerCfg.search, ownerCfg.needsCode], [true, false], 'desde localhost directo no pide código');
+  const ownerRes = await getJson('/api/search?q=sin%20codigo%20dueno');
+  ok(ownerRes.error !== 'auth', 'el dueño busca sin código (aquí solo choca con el tope diario: ' + ownerRes.error + ')');
+  eq((await getJson('/api/config', { 'x-forwarded-for': '203.0.113.9' })).needsCode, true, 'por un túnel/proxy (x-forwarded-for) sigue pidiendo código');
+  eq((await getJson('/api/search?q=hola', { 'cf-connecting-ip': '203.0.113.9' })).error, 'auth', 'por el túnel de Cloudflare no se salta el código');
+  eq((await getJson('/api/search?q=hola', { host: 'algo.trycloudflare.com' })).error, 'auth', 'con Host de una dirección pública tampoco');
+  process.env.LOCAL_OWNER_SEARCH = '0';
+  eq((await getJson('/api/config')).needsCode, true, 'LOCAL_OWNER_SEARCH=0 lo desactiva');
+
+  console.log('abrir búsqueda a invitados');
+  const postJson = (path, headers = {}) => new Promise((resolve, reject) => { const rq = require('http').request(`http://127.0.0.1:${port}${path}`, { method: 'POST', headers }, (r) => { let b = ''; r.on('data', (c) => (b += c)); r.on('end', () => resolve(JSON.parse(b))); }); rq.on('error', reject); rq.end(); });
+  process.env.LOCAL_OWNER_SEARCH = '1';
+  eq((await getJson('/api/config')).ownerCanToggle, true, 'el dueño ve el interruptor');
+  eq((await getJson('/api/config', { 'x-forwarded-for': '203.0.113.9' })).ownerCanToggle, false, 'un invitado por el túnel no lo ve');
+  eq((await postJson('/api/search-open?open=1', { 'x-forwarded-for': '203.0.113.9' })).ok, false, 'un invitado no puede abrir el buscador');
+  eq((await getJson('/api/search?q=hola', { 'x-forwarded-for': '203.0.113.9' })).error, 'auth', 'sigue cerrado para invitados');
+  eq((await postJson('/api/search-open?open=1')).guestsOpen, true, 'el dueño abre el buscador a invitados');
+  const guestCfg = await getJson('/api/config', { 'x-forwarded-for': '203.0.113.9' });
+  eq([guestCfg.search, guestCfg.needsCode], [true, false], 'los invitados ya no necesitan código');
+  ok((await getJson('/api/search?q=hola', { 'x-forwarded-for': '203.0.113.9' })).error !== 'auth', 'un invitado puede buscar sin código');
+  eq((await postJson('/api/search-open?open=0')).guestsOpen, false, 'el dueño lo cierra');
+  eq((await getJson('/api/search?q=hola', { 'x-forwarded-for': '203.0.113.9' })).error, 'auth', 'vuelve a pedir código');
+  process.env.LOCAL_OWNER_SEARCH = '0';
 
   console.log('roles');
   B.send({ type: 'setRole', target: B.me().id, admin: true });
