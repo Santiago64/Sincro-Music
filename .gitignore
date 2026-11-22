@@ -1,0 +1,19 @@
+# Dependencias
+node_modules/
+
+# Secretos y configuración local (NUNCA subir)
+.env
+.env.*
+!.env.example
+iniciar.bat
+iniciar.sh
+
+# Datos locales
+data/
+*.log
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
