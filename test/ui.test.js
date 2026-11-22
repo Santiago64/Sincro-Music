@@ -2,6 +2,17 @@
 process.env.GRACE_MS = '400';
 const path = require('path');
 const { JSDOM, VirtualConsole, requestInterceptor } = require('jsdom');
+// Sin internet no hay prueba que dependa de YouTube: se simula oEmbed (el servidor consulta el título de cada video).
+// Con internet, un id inventado devolvería 404 y el servidor lo rechazaría, así que esto evita que la prueba dependa de la red.
+const realGlobalFetch = global.fetch;
+global.fetch = async (url, opts) => {
+  const s = String(url);
+  if (s.includes('youtube.com/oembed')) {
+    const id = decodeURIComponent(s).match(/v=([\w-]{11})/)[1];
+    return { status: 200, ok: true, json: async () => ({ title: 'Canción ' + id }) };
+  }
+  return realGlobalFetch(url, opts);
+};
 const { server } = require('../server.js');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
