@@ -170,15 +170,27 @@ function accessCodes() {
   return map;
 }
 /** 'off' (sin key o sin códigos), 'private' (solo con código) o 'public' (SEARCH_PUBLIC=1, para cuando la app sea global). */
+let searchOpenForGuests = false; // interruptor del dueño (se apaga al reiniciar): abre el buscador sin código
 function searchMode() {
   if (!process.env.YOUTUBE_API_KEY) return 'off';
-  if (process.env.SEARCH_PUBLIC === '1') return 'public';
+  if (process.env.SEARCH_PUBLIC === '1' || searchOpenForGuests) return 'public';
   return accessCodes().size > 0 ? 'private' : 'off';
 }
 const codeLabel = (req) => {
   const c = String(req.headers['x-access-code'] || '').trim().slice(0, 100);
   return c ? accessCodes().get(sha(c)) || null : null;
 };
+/** ¿La petición viene directo del navegador de la misma PC donde corre el servidor (http://localhost:PUERTO)?
+ *  Las que llegan por un túnel o proxy traen cabeceras de reenvío y el Host de la dirección pública, así que no cuentan.
+ *  El dueño no necesita código de búsqueda. Se apaga con LOCAL_OWNER_SEARCH=0. */
+function isLocalOwner(req) {
+  if (process.env.LOCAL_OWNER_SEARCH === '0') return false;
+  const addr = req.socket.remoteAddress || '';
+  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(addr)) return false;
+  const h = req.headers;
+  if (h['x-forwarded-for'] || h['x-forwarded-host'] || h['forwarded'] || h['cf-connecting-ip'] || h['cf-ray'] || h['x-real-ip']) return false;
+  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(String(h.host || ''));
+}
 const authFails = new Map();
 const tooManyFails = (ip) => (authFails.get(ip) || []).filter((t) => Date.now() - t < 600000).length >= 10;
 const noteFail = (ip) => authFails.set(ip, [...(authFails.get(ip) || []).filter((t) => Date.now() - t < 600000), Date.now()]);
@@ -826,8 +838,20 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/config') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     const mode = searchMode();
-    res.end(JSON.stringify({ search: mode !== 'off', needsCode: mode === 'private' }));
+    res.end(JSON.stringify({
+      search: mode !== 'off',
+      needsCode: mode === 'private' && !isLocalOwner(req),
+      ownerCanToggle: !!process.env.YOUTUBE_API_KEY && process.env.SEARCH_PUBLIC !== '1' && isLocalOwner(req),
+      guestsOpen: searchOpenForGuests,
+    }));
     return;
+  }
+  if (url.pathname === '/api/search-open') {
+    // solo el dueño (navegador en la misma PC, por localhost) puede abrir o cerrar el buscador a los invitados
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    if (req.method !== 'POST' || !process.env.YOUTUBE_API_KEY || process.env.SEARCH_PUBLIC === '1' || !isLocalOwner(req)) return res.end(JSON.stringify({ ok: false }));
+    searchOpenForGuests = url.searchParams.get('open') === '1';
+    return res.end(JSON.stringify({ ok: true, guestsOpen: searchOpenForGuests }));
   }
   if (url.pathname === '/api/search-auth') {
     const ip = clientIp(req);
@@ -850,7 +874,9 @@ const server = http.createServer((req, res) => {
     const mode = searchMode();
     if (mode === 'off') return json({ error: 'disabled' });
     let who = ip;
-    if (mode === 'private') {
+    if (mode === 'private' && isLocalOwner(req)) {
+      who = 'owner';
+    } else if (mode === 'private') {
       if (tooManyFails(ip)) return json({ error: 'rate' });
       const label = codeLabel(req);
       if (!label) {
