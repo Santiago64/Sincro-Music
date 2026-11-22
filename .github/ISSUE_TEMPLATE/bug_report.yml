@@ -1,0 +1,35 @@
+
+name: 🐛 Reportar un error / Bug report
+description: Algo no funciona como debería / Something is not working
+labels: ["bug"]
+body:
+  - type: textarea
+    id: que
+    attributes:
+      label: ¿Qué pasó? / What happened?
+      description: Contalo con tus palabras. Si podés, agregá una captura de pantalla (arrastrala acá). / Add a screenshot if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Pasos para repetirlo / Steps to reproduce
+      placeholder: "1. Creé una sala  2. Activé CC·HD  3. ..."
+  - type: input
+    id: navegador
+    attributes:
+      label: Navegador y sistema / Browser and OS
+      placeholder: "Chrome 130, Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: rol
+    attributes:
+      label: ¿Eras host/admin o miembro? / Your role
+      options: [Host, Admin, Miembro / Member, No sé / Not sure]
+  - type: textarea
+    id: consola
+    attributes:
+      label: Errores de la consola (opcional) / Console errors (optional)
+      description: "Apretá F12 → pestaña Console y copiá lo que salga en rojo. NO pegues tu clave ni tus códigos de acceso."
+      render: text
