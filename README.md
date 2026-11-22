@@ -11,7 +11,7 @@ Web app **gratis, sin cuentas y sin bots** para escuchar **lo mismo, al mismo ti
 ## Inicio rápido (5 minutos)
 
 1. Instalá [Node.js](https://nodejs.org) 18 o superior.
-2. Descargá este repo (botón *Code → Download ZIP*) o clonalo: `git clone https://github.com/TU_USUARIO/sincro.git`
+2. Descargá este repo (botón *Code → Download ZIP*) o clonalo: `git clone https://github.com/Santiago64/Sincro-Music`
 3. En la carpeta del proyecto:
    ```bash
    npm install
@@ -21,22 +21,21 @@ Web app **gratis, sin cuentas y sin bots** para escuchar **lo mismo, al mismo ti
 5. **Para que tus amigos entren** desde afuera sin abrir puertos del router, usá un túnel gratuito de Cloudflare (sin cuenta):
    ```bash
    winget install Cloudflare.cloudflared      # Windows, una sola vez
-   cloudflared tunnel --url http://localhost:3000
    ```
-   Te imprime una dirección `https://algo.trycloudflare.com`: esa es la que compartís (más el código de sala). Mientras tu PC y esa ventana estén abiertas, funciona. **La dirección cambia cada vez que reiniciás el túnel.**
+   - **Windows, todo con un doble clic:** abrí **`iniciar-todo.bat`**. Arranca el servidor en una ventana y el túnel en otra, te muestra la dirección `https://algo.trycloudflare.com` y **la copia al portapapeles**. Esa es la que compartís (más el código de sala).
+   - **A mano (cualquier sistema):** `cloudflared tunnel --url http://localhost:3000` en otra terminal y copiá la dirección que imprime.
+
+   Mientras tu PC y la ventana del túnel estén abiertas, funciona. **La dirección cambia cada vez que reiniciás el túnel.**
 
 Otras formas: [Docker](#docker), un VPS, o un túnel con dominio propio (ver [Hosting](#hosting)).
 
 ## Abrirla de nuevo cada día (resumen)
 
-Hacen falta **dos ventanas de CMD**:
+**Windows:** doble clic en **`iniciar-todo.bat`**. Si existe tu `iniciar.bat` (copia de `iniciar-EJEMPLO.bat` con tu clave y tus códigos), lo usa; si no, arranca sin buscador. Se abren dos ventanas: el servidor (tiene que decir "Sincro Music escuchando en http://localhost:3000") y el túnel, que muestra la dirección `https://….trycloudflare.com` y la copia al portapapeles. Pegásela a tus amigos junto con el código de sala.
 
-1. **Servidor** (en la carpeta del proyecto): doble clic en `iniciar.bat` (copia de `iniciar-EJEMPLO.bat` con tu clave y tus códigos). Tiene que decir "Sincro Music escuchando en http://localhost:3000".
-2. **Túnel** (otra ventana, cualquier carpeta): `cloudflared tunnel --url http://localhost:3000`. Copiá la dirección `https://….trycloudflare.com` que muestra.
+**La dirección del túnel cambia cada vez que lo reiniciás**, así que hay que pasarla de nuevo. **Ojo con el código de búsqueda:** el navegador lo guarda *por dirección*, y como la del túnel cambia, hay que volver a pegarlo. Dos soluciones: (1) vos, que hospedás, abrí la app por **`http://localhost:3000`** (esa dirección no cambia y el código queda guardado para siempre); (2) en el botón 🔑 tocá **Copiar link con mi código**, guardalo en favoritos y cambiá el principio por la dirección del día, o simplemente agregá `#k=TU-CODIGO` al final de la dirección nueva y se carga solo.
 
-Después: abrí esa dirección, creá una sala y pasales a tus amigos la dirección + el código de sala. **La dirección del túnel cambia cada vez que lo reiniciás**, así que hay que pasarla de nuevo. Los códigos de búsqueda de tus amigos siguen funcionando (quedan guardados en su navegador).
-
-Para actualizar la app: Ctrl + C en el servidor, descomprimir el zip nuevo encima de la carpeta, y volver a abrir `iniciar.bat`. Las salas y los emotes se pierden al reiniciar.
+Para actualizar la app: Ctrl + C en el servidor, reemplazá los archivos del proyecto (sin pisar tu `iniciar.bat`) y volvé a abrir `iniciar-todo.bat`. Las salas y los emotes se pierden al reiniciar.
 
 ## Lo que hace
 
@@ -111,7 +110,9 @@ npm start
 - Para **sacarle el acceso** a alguien, sacás su código de la lista y reiniciás el servidor.
 - Quien no tiene código sigue pudiendo pegar links de videos y playlists; lo único que no puede es buscar por nombre.
 - Si definís `YOUTUBE_API_KEY` pero no `SEARCH_ACCESS_CODES`, la búsqueda queda **apagada** (el servidor lo avisa en consola).
-- Cuando la app sea pública y quieras abrirla a todos: `set SEARCH_PUBLIC=1` (ojo: ahí el cupo gratis se acaba rápido).
+- **El dueño no necesita código:** si abrís la app desde la misma PC donde corre, por `http://localhost:3000`, el buscador funciona directo y el 🔑 ni aparece. Lo que llega por el túnel sí pide código. (Se desactiva con `set LOCAL_OWNER_SEARCH=0`.)
+- **Abrir el buscador a los invitados sin darles código:** abriendo la app por `localhost:3000`, en **⚙️ Sala** aparece "Dejar que los invitados busquen sin código" (solo lo ve el dueño). Usa tu cupo diario y se apaga solo al reiniciar el servidor. Los invitados no tienen que recargar nada.
+- **Uso personal sin códigos:** si la usás solo vos y gente de confianza, podés poner `set SEARCH_PUBLIC=1` y nadie tiene que pegar código. Ojo: cualquiera que tenga tu dirección del túnel puede gastar tu cupo diario de búsquedas.
 - Los intentos con código incorrecto no gastan cupo de YouTube y se bloquean tras 10 fallos en 10 minutos por IP.
 
 Cómo cuida el cupo: guarda en memoria cada búsqueda 24 h (repetirla no gasta), tiene un tope diario propio (`SEARCH_DAILY_MAX`, por defecto 90) y un máximo de 12 búsquedas por minuto por persona. Si se agota, la web avisa y se sigue pudiendo pegar links. Solo muestra videos que permiten reproducirse fuera de YouTube.
@@ -119,6 +120,8 @@ Cómo cuida el cupo: guarda en memoria cada búsqueda 24 h (repetirla no gasta),
 ## Archivos
 
 ```
+iniciar-todo.bat     Windows: abre servidor + túnel y copia la dirección para compartir
+tunel.ps1            lo usa iniciar-todo.bat
 server.js            servidor: salas, permisos, sincronización, chat (solo depende de "ws")
 public/index.html    pantallas
 public/style.css     estilos y temas (variables CSS)
@@ -152,6 +155,17 @@ Soundboard (efectos de sonido en la sala, pensado para rol), bibliotecas de pack
 - No se descarga, graba ni retransmite audio: cada persona ve el video en su navegador.
 - Los emotes que se suban y el contenido del chat son responsabilidad de quienes usan cada sala.
 - Software provisto "tal cual", sin garantías (ver [LICENSE](LICENSE)).
+
+## 💬 Feedback, errores e ideas
+
+Todo se habla **acá mismo, en GitHub** (hace falta una cuenta gratuita de GitHub):
+
+- 🐛 **Un error:** pestaña [Issues](../../issues) → *New issue* → "Reportar un error". Si podés, adjuntá una captura.
+- 💡 **Una idea:** [Issues](../../issues) → "Proponer una idea".
+- ❓ **Dudas o charla** (cómo lo usás, qué te gustaría): pestaña [Discussions](../../discussions).
+- 🔧 **Querés arreglarlo vos:** mirá [CONTRIBUTING.md](CONTRIBUTING.md) y mandá un Pull Request.
+
+Las páginas de donación (Cafecito, Ko-fi) son solo para apoyar, no para reportar errores.
 
 ## ☕ Apoyar el proyecto
 

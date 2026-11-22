@@ -11,7 +11,7 @@ A **free, account-less, bot-less** web app to listen to **the same thing at the 
 ## Quick start (5 minutes)
 
 1. Install [Node.js](https://nodejs.org) 18+.
-2. Download this repo (*Code → Download ZIP*) or `git clone https://github.com/YOUR_USER/sincro.git`.
+2. Download this repo (*Code → Download ZIP*) or `git clone https://github.com/Santiago64/Sincro-Music`.
 3. In the project folder:
    ```bash
    npm install
@@ -20,9 +20,12 @@ A **free, account-less, bot-less** web app to listen to **the same thing at the 
 4. Open <http://localhost:3000>, pick a nickname and create a room.
 5. **To let friends in** without opening router ports, use a free Cloudflare tunnel (no account):
    ```bash
-   cloudflared tunnel --url http://localhost:3000
+   winget install Cloudflare.cloudflared      # Windows, once
    ```
-   Share the `https://something.trycloudflare.com` URL it prints, plus the room code. The quick-tunnel URL changes every time you restart it.
+   - **Windows, one double-click:** run **`iniciar-todo.bat`**. It starts the server and the tunnel, shows the `https://something.trycloudflare.com` URL and **copies it to your clipboard**. Share it plus the room code.
+   - **Manually (any OS):** `cloudflared tunnel --url http://localhost:3000` in another terminal and copy the URL it prints.
+
+   The quick-tunnel URL changes every time you restart it.
 
 ## Features
 
@@ -47,6 +50,7 @@ Everything is optional. Copy `.env.example` to `.env`:
 | `SEARCH_ACCESS_CODES` | `name:code,...` (min. 8 chars). Search only works with a code |
 | `SEARCH_PUBLIC=1` | Open search to everyone (quota runs out fast) |
 | `SEARCH_DAILY_MAX` | Own daily cap (default 90) |
+| `LOCAL_OWNER_SEARCH=0` | By default, opening the app from the host PC via `http://localhost:PORT` needs no search code; set 0 to disable |
 
 `.env` and `iniciar.bat` are in `.gitignore`: your secrets never reach the repo. **Never commit your API key.**
 
@@ -68,6 +72,10 @@ Desktop only (mobile browsers pause YouTube when the screen locks). Some videos 
 ## Legal
 
 Not affiliated with or endorsed by YouTube/Google. Uses the official embedded player and your own API key; hosts are responsible for complying with [YouTube's terms](https://www.youtube.com/t/terms). Software provided "as is" (see [LICENSE](LICENSE)).
+
+## 💬 Feedback, bugs and ideas
+
+Everything happens **right here on GitHub** (free account needed): open an [Issue](../../issues) for a bug or a feature idea, use [Discussions](../../discussions) for questions and chat, or send a Pull Request (see [CONTRIBUTING.md](CONTRIBUTING.md)). The donation pages are only for support, not for bug reports.
 
 ## ☕ Support
 
