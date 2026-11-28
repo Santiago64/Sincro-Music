@@ -27,7 +27,7 @@ global.fetch = async (url) => {
   return { status: 200, ok: true, json: async () => ({ title: 'Canción ' + id }) };
 };
 
-const { server, rooms, parseVideoId } = require('../server');
+const { server, rooms, parseVideoId, idsFromPlaylistHtml, cleanPublicUrl, packEmotes } = require('../server');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const httpGet = require('http').get;
@@ -264,7 +264,7 @@ const eq = (a, b, label) => { assert.deepStrictEqual(a, b, label); passed++; con
 
   const getJsonA = (p) => getJson(p, { 'x-access-code': 'codigo-ana-123' });
   console.log('buscador');
-  eq(await getJson('/api/config'), { search: true, needsCode: true, ownerCanToggle: false, guestsOpen: false }, 'con API key y códigos, la búsqueda está activa pero pide código');
+  eq(await getJson('/api/config'), { search: true, needsCode: true, ownerCanToggle: false, guestsOpen: false, publicUrl: '' }, 'con API key y códigos, la búsqueda está activa pero pide código');
   eq((await getJson('/api/search?q=Hola%20Mundo')).error, 'auth', 'sin código de acceso no se puede buscar');
   eq((await getJson('/api/search?q=Hola%20Mundo', { 'x-access-code': 'codigo-mal-123' })).error, 'auth', 'con código incorrecto tampoco');
   ok(apiSearchCalls === 0, 'los intentos sin código no gastan cuota de YouTube');
@@ -431,6 +431,49 @@ const eq = (a, b, label) => { assert.deepStrictEqual(a, b, label); passed++; con
   B2.send({ type: 'removeEmote', name: 'kril' });
   await sleep(100);
   eq(B2.room.reactions[':kril:'], undefined, 'al borrar el emote se borran también sus reacciones');
+
+  console.log('GIFs, playlist y dirección pública');
+  const mkGif = (w, h, extra = 0) => { const b = Buffer.alloc(14 + extra); b.write('GIF89a', 0, 'latin1'); b.writeUInt16LE(w, 6); b.writeUInt16LE(h, 8); return b; };
+  B2.send({ type: 'addEmote', name: 'baila', data: mkGif(120, 90).toString('base64'), fmt: 'gif' });
+  await sleep(1500);
+  ok(B2.room.emotes.some((e) => e.name === 'baila' && e.ext === 'gif'), 'se puede subir un GIF animado como emote');
+  const gif1 = await new Promise((resolve) => httpGet(`http://127.0.0.1:${port}/emote/${code}/baila.gif`, (r) => { r.resume(); resolve([r.statusCode, r.headers['content-type']]); }));
+  eq(gif1, [200, 'image/gif'], 'el GIF se sirve como image/gif');
+  B2.send({ type: 'react', emoji: ':baila:' });
+  await sleep(100);
+  eq(B2.last('reaction').counts[':baila:'], 1, 'se puede reaccionar con un GIF');
+  const nG = B2.errors().length;
+  B2.send({ type: 'addEmote', name: 'gifgrande', data: mkGif(900, 900).toString('base64'), fmt: 'gif' });
+  await sleep(1400);
+  B2.send({ type: 'addEmote', name: 'gifpesado', data: mkGif(100, 100, 310 * 1024).toString('base64'), fmt: 'gif' });
+  await sleep(1400);
+  B2.send({ type: 'addEmote', name: 'nogif', data: mkPng(32, 32).toString('base64'), fmt: 'gif' });
+  await sleep(1400);
+  eq(B2.errors().length - nG, 3, 'rechaza GIF de más de 512 px, GIF pesado y un PNG disfrazado de GIF');
+  B2.send({ type: 'removeEmote', name: 'baila' });
+  await sleep(100);
+  eq(idsFromPlaylistHtml('x"playlistVideoRenderer":{"videoId":"abcdefghijk","t":1} y"playlistVideoRenderer":{"videoId":"abcdefghijk"} "playlistVideoRenderer":{"videoId":"ZZZZZZZZZZZ"}'), ['abcdefghijk', 'ZZZZZZZZZZZ'], 'se leen los videos de una playlist sin repetir y en orden');
+  eq([cleanPublicUrl('https://abc-def.trycloudflare.com/x?y'), cleanPublicUrl('http://localhost:3000'), cleanPublicUrl('javascript:alert(1)')], ['https://abc-def.trycloudflare.com', '', ''], 'la dirección pública solo acepta http(s) que no sea localhost');
+  const pl = await new Promise((resolve) => httpGet(`http://127.0.0.1:${port}/api/playlist?list=RDabcdefghijk`, (r) => { let b = ''; r.on('data', (c) => (b += c)); r.on('end', () => resolve(JSON.parse(b))); }));
+  eq(pl.error, 'bad', 'los Mix automáticos (RD...) no se piden');
+  const pu = await new Promise((resolve) => { const rq = require('http').request(`http://localhost:${port}/api/public-url?url=${encodeURIComponent('https://mi-sala.trycloudflare.com')}`, { method: 'POST' }, (r) => { let b = ''; r.on('data', (c) => (b += c)); r.on('end', () => resolve(JSON.parse(b))); }); rq.end(); });
+  ok(pu.ok && pu.url === 'https://mi-sala.trycloudflare.com', 'tunel.ps1 puede avisar la dirección pública desde la misma PC');
+  const cfg = await new Promise((resolve) => httpGet(`http://localhost:${port}/api/config`, (r) => { let b = ''; r.on('data', (c) => (b += c)); r.on('end', () => resolve(JSON.parse(b))); }));
+  eq(cfg.publicUrl, 'https://mi-sala.trycloudflare.com', '/api/config entrega la dirección pública para el botón Link');
+
+  console.log('carpeta de emotes (packs)');
+  const gbuf = mkGif(32, 32);
+  packEmotes.set('del_pack', { name: 'del_pack', buf: gbuf, ext: 'gif', v: 'p1', by: 'pack', shared: true });
+  const PK = await new Client('Pack').open();
+  PK.create({ name: 'Con pack', public: false });
+  await sleep(150);
+  ok(PK.room.emotes.some((e) => e.name === 'del_pack' && e.ext === 'gif' && e.by === 'pack'), 'una sala nueva ya trae los emotes de la carpeta packs');
+  PK.send({ type: 'removeEmote', name: 'del_pack' });
+  await sleep(100);
+  ok(!PK.room.emotes.some((e) => e.name === 'del_pack') && packEmotes.has('del_pack'), 'borrarlo en una sala no lo borra de la carpeta ni de otras salas');
+  PK.send({ type: 'leave' });
+  await sleep(100);
+  packEmotes.delete('del_pack');
 
   console.log('sala vacía');
   B2.send({ type: 'leave' });

@@ -292,7 +292,7 @@ const click = (c, sel) => c.$(sel).dispatchEvent(new c.w.MouseEvent('click', { b
   await sleep(4500);
   ok(q0() === baseS + 1, 'el ＋ final de un resultado lo agrega a la cola');
   ok(!A.$('#search-results').classList.contains('hidden'), 'los resultados quedan abiertos para seguir agregando');
-  [...A.$('#search-results').querySelectorAll('button')].find((b) => b.textContent.includes('cerrar')).click();
+  A.$('#search-results').querySelector('button.close-red').click();
   ok(A.$('#search-results').classList.contains('hidden'), 'se pueden cerrar');
   A.w.fetch = realFetch;
 
