@@ -1,0 +1,14 @@
+CARPETA DE EMOTES (se cargan solos en cada sala nueva)
+
+Poné acá tus imagenes .png o .gif. El nombre del archivo es el nombre del emote:
+    pepe_baila.gif   ->   se usa escribiendo  :pepe_baila:   en el chat
+    kekw.png         ->   :kekw:
+
+Reglas:
+  - Nombre: 2 a 20 letras minusculas, numeros o _ (sin espacios ni tildes).
+  - PNG: hasta 256 px de lado y 40 KB.
+  - GIF: hasta 512 px de lado y 300 KB (si pesa mas, achicalo en ezgif.com).
+  - Maximo 25 emotes por sala.
+  - Se leen al iniciar el servidor: despues de agregar o cambiar archivos, reinicialo.
+
+Tus imagenes NO se suben a GitHub (el .gitignore las deja afuera); este archivo si.
