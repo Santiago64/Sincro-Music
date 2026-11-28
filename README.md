@@ -59,6 +59,13 @@ Para actualizar la app: Ctrl + C en el servidor, reemplazá los archivos del pro
 - Si se corta internet o se refresca la página, reconecta y conserva el rol (20 s de margen).
 - Las salas se borran solas cuando se va la última persona. No hay base de datos.
 
+## Emotes, GIFs y carpeta de emotes
+
+- Los emotes pueden ser **PNG** (se achican solos) o **GIF animados** (hasta 300 KB y 512 px de lado; si pesa más, achicalo en ezgif.com). Se usan en el chat escribiendo `:nombre:` y como reacciones sobre el video.
+- **Carpeta `packs/emotes/`:** poné ahí tus `.png` y `.gif` (el nombre del archivo es el nombre del emote) y se cargan solos en **cada sala nueva**, sin subirlos de a uno. Se leen al iniciar el servidor. Tus imágenes no se suben a GitHub. Más detalle en `packs/emotes/LEEME.txt`.
+- **Botón "Link" de la sala:** desde `localhost` copia la dirección pública del túnel (la avisa `tunel.ps1` al abrirse, o la definís con `PUBLIC_URL` en el `.env`) en vez de `localhost`.
+- **Playlists:** se leen en el servidor (con la API de YouTube si hay clave; si no, desde la página pública de la playlist). Los "Mix" automáticos (`RD...`) y las playlists privadas no se pueden leer.
+
 ## Hosting
 
 Es un servidor Node con WebSocket, así que necesita un lugar que acepte Node (no sirve GitHub Pages ni hosting estático). Opciones:

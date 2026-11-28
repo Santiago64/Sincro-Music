@@ -43,7 +43,10 @@ const LIMITS = {
   connsPerIp: 25,
 };
 
-const EMOTE_MAX_BYTES = 40 * 1024; // por imagen (el navegador la achica antes de subirla)
+const EMOTE_MAX_BYTES = 40 * 1024; // por imagen PNG (el navegador la achica antes de subirla)
+const GIF_MAX_BYTES = 300 * 1024; // por GIF animado (se sube tal cual, no se puede achicar sin perder la animación)
+const GIF_MAX_SIDE = 512; // px de lado máximo de un GIF
+const PACKS_DIR = path.join(__dirname, 'packs', 'emotes'); // emotes que se cargan solos en cada sala nueva
 const EMOTE_TOTAL_MAX = 48 * 1024 * 1024; // tope de memoria para todos los emotes juntos
 let emoteBytesTotal = 0;
 const EMOJIS = ['🔥', '❤️', '😂', '💀', '👏', '😭', '🤯', '👎'];
@@ -185,6 +188,10 @@ const codeLabel = (req) => {
  *  El dueño no necesita código de búsqueda. Se apaga con LOCAL_OWNER_SEARCH=0. */
 function isLocalOwner(req) {
   if (process.env.LOCAL_OWNER_SEARCH === '0') return false;
+  return isLocalRequest(req);
+}
+/** Igual que arriba pero sin depender de LOCAL_OWNER_SEARCH (para avisar la dirección pública del túnel). */
+function isLocalRequest(req) {
   const addr = req.socket.remoteAddress || '';
   if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(addr)) return false;
   const h = req.headers;
@@ -245,6 +252,57 @@ async function searchVideos(q) {
   }
 }
 
+// ---------- dirección pública (para el botón "Link": desde localhost copia la del túnel, no "localhost") ----------
+let publicUrl = '';
+const cleanPublicUrl = (u) => {
+  try {
+    const x = new URL(String(u));
+    if (x.protocol !== 'https:' && x.protocol !== 'http:') return '';
+    if (/^(localhost|127\.|\[::1\])/i.test(x.hostname)) return '';
+    return x.origin;
+  } catch { return ''; }
+};
+publicUrl = cleanPublicUrl(process.env.PUBLIC_URL || '');
+
+// ---------- playlists: se leen en el servidor (API de YouTube si hay clave; si no, la página pública) ----------
+const playlistCache = new Map();
+const ipPlaylist = new Map();
+/** Saca los ids de video (en orden, sin repetir) del HTML de una playlist de YouTube. */
+function idsFromPlaylistHtml(html) {
+  const out = [];
+  const re = /"playlistVideoRenderer":\{"videoId":"([\w-]{11})"/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < 100) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+async function playlistIds(list) {
+  if (!/^[\w-]{10,64}$/.test(list) || /^RD/.test(list)) return { error: 'bad' };
+  const hit = playlistCache.get(list);
+  if (hit && Date.now() - hit.t < 10 * 60000) return { ids: hit.ids };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  let ids = [];
+  try {
+    const key = process.env.YOUTUBE_API_KEY;
+    if (key) {
+      const r = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=50&playlistId=${encodeURIComponent(list)}&key=${encodeURIComponent(key)}`, { signal: ctrl.signal });
+      if (r.ok) ids = ((await r.json()).items || []).map((i) => i.contentDetails && i.contentDetails.videoId).filter((v) => /^[\w-]{11}$/.test(v || ''));
+      else console.warn('Playlist (API) falló:', r.status);
+    }
+    if (!ids.length) {
+      const r = await fetch('https://www.youtube.com/playlist?list=' + encodeURIComponent(list), {
+        signal: ctrl.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8', Cookie: 'CONSENT=YES+1; SOCS=CAI' },
+      });
+      if (r.ok) ids = idsFromPlaylistHtml(await r.text());
+    }
+  } catch { /* se informa abajo */ } finally { clearTimeout(timer); }
+  if (!ids.length) return { error: 'failed' };
+  playlistCache.set(list, { t: Date.now(), ids });
+  if (playlistCache.size > 100) playlistCache.delete(playlistCache.keys().next().value);
+  return { ids };
+}
+
 const cleanColor = (c) => (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c) ? c.toLowerCase() : null);
 function lum(hex) {
   const ch = [1, 3, 5].map((i) => {
@@ -291,7 +349,7 @@ function snapshot(r) {
     members: [...r.members.values()].map((m) => ({ id: m.pid, nick: m.nick, color: m.color, tcolor: m.tcolor, role: m.role, online: m.connected })),
     queue: r.queue.map(pubItem),
     history: r.history,
-    emotes: [...r.emotes.values()].map((e) => ({ name: e.name, v: e.v, by: e.by })),
+    emotes: [...r.emotes.values()].map((e) => ({ name: e.name, v: e.v, by: e.by, ext: e.ext || 'png' })),
     current: pubItem(r.current),
     playing: r.playing,
     pos: curPos(r),
@@ -373,7 +431,7 @@ function promoteNewHost(r) {
 }
 
 function deleteRoom(r) {
-  for (const e of r.emotes.values()) emoteBytesTotal -= e.buf.length;
+  for (const e of r.emotes.values()) if (!e.shared) emoteBytesTotal -= e.buf.length;
   rooms.delete(r.code);
 }
 
@@ -381,6 +439,9 @@ function deleteRoom(r) {
 function parsePng(b64) {
   if (typeof b64 !== 'string' || b64.length > 60000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
   const buf = Buffer.from(b64, 'base64');
+  return checkPng(buf);
+}
+function checkPng(buf) {
   if (buf.length < 33 || buf.length > EMOTE_MAX_BYTES) return null;
   if (!buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return null;
   if (buf.toString('latin1', 12, 16) !== 'IHDR') return null;
@@ -389,6 +450,47 @@ function parsePng(b64) {
   if (!w || !h || w > 256 || h > 256) return null;
   return buf;
 }
+/** Valida un GIF (firma GIF87a/GIF89a + tamaño de la cabecera). Devuelve el Buffer o null. */
+function checkGif(buf) {
+  if (buf.length < 14 || buf.length > GIF_MAX_BYTES) return null;
+  const sig = buf.toString('latin1', 0, 6);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return null;
+  const w = buf.readUInt16LE(6);
+  const h = buf.readUInt16LE(8);
+  if (!w || !h || w > GIF_MAX_SIDE || h > GIF_MAX_SIDE) return null;
+  return buf;
+}
+/** Emote que llega por WebSocket (base64). fmt: 'png' (por defecto) o 'gif'. Devuelve {buf, ext} o null. */
+function parseEmote(b64, fmt) {
+  if (fmt === 'gif') {
+    if (typeof b64 !== 'string' || b64.length > Math.ceil(GIF_MAX_BYTES / 3) * 4 + 8 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
+    const buf = checkGif(Buffer.from(b64, 'base64'));
+    return buf ? { buf, ext: 'gif' } : null;
+  }
+  const buf = parsePng(b64);
+  return buf ? { buf, ext: 'png' } : null;
+}
+
+/** Carpeta packs/emotes: cada .png / .gif se carga solo en toda sala nueva (el nombre del archivo es el nombre del emote). */
+const packEmotes = new Map();
+function loadPackEmotes() {
+  packEmotes.clear();
+  let files = [];
+  try { files = fs.readdirSync(PACKS_DIR).sort(); } catch { return; }
+  for (const f of files) {
+    const m = f.match(/^([a-z0-9_]{2,20})\.(png|gif)$/i);
+    if (!m || packEmotes.size >= LIMITS.emotes) continue;
+    let buf;
+    try { buf = fs.readFileSync(path.join(PACKS_DIR, f)); } catch { continue; }
+    const ext = m[2].toLowerCase();
+    const ok = ext === 'gif' ? checkGif(buf) : checkPng(buf);
+    if (!ok) { console.warn(`packs/emotes/${f}: no es un ${ext.toUpperCase()} válido o es muy pesado/grande (se ignora).`); continue; }
+    const name = m[1].toLowerCase();
+    packEmotes.set(name, { name, buf, ext, v: 'p' + crypto.createHash('md5').update(buf).digest('hex').slice(0, 8), by: 'pack', shared: true });
+  }
+  if (packEmotes.size) console.log(`Emotes de la carpeta packs: ${packEmotes.size} (${[...packEmotes.keys()].join(', ')})`);
+}
+loadPackEmotes();
 
 function removeMember(r, clientId, mode) {
   const m = r.members.get(clientId);
@@ -469,7 +571,7 @@ async function handle(ws, msg, ip) {
         banned: new Set(),
         queue: [],
         history: [],
-        emotes: new Map(),
+        emotes: new Map([...packEmotes].map(([k, e]) => [k, e])), // los de packs/emotes vienen ya cargados
         current: null,
         playing: false,
         basePos: 0,
@@ -607,13 +709,15 @@ async function handle(ws, msg, ip) {
       if (!canControl(me) && !r.settings.everyoneEmotes) return err(ws, 'emotePerm', 'perm');
       const name = String(msg.name || '').toLowerCase();
       if (!/^[a-z0-9_]{2,20}$/.test(name)) return err(ws, 'emoteName', 'bad');
-      const buf = parsePng(msg.data);
-      if (!buf) return err(ws, 'emoteImage', 'bad');
+      const parsed = parseEmote(msg.data, msg.fmt === 'gif' ? 'gif' : 'png');
+      if (!parsed) return err(ws, 'emoteImage', 'bad');
+      const buf = parsed.buf;
       const old = r.emotes.get(name);
+      const oldBytes = old && !old.shared ? old.buf.length : 0;
       if (!old && r.emotes.size >= LIMITS.emotes) return err(ws, 'emoteLimit', 'full');
-      if (emoteBytesTotal - (old ? old.buf.length : 0) + buf.length > EMOTE_TOTAL_MAX) return err(ws, 'emoteLimit', 'full');
-      emoteBytesTotal += buf.length - (old ? old.buf.length : 0);
-      r.emotes.set(name, { name, buf, v: uid(), by: me.nick });
+      if (emoteBytesTotal - oldBytes + buf.length > EMOTE_TOTAL_MAX) return err(ws, 'emoteLimit', 'full');
+      emoteBytesTotal += buf.length - oldBytes;
+      r.emotes.set(name, { name, buf, ext: parsed.ext, v: uid(), by: me.nick });
       sysChat(r, 'emoteAdded', { nick: me.nick, name });
       return pushRoom(r);
     }
@@ -622,7 +726,7 @@ async function handle(ws, msg, ip) {
       if (!canControl(me)) return err(ws, 'ctlPerm', 'perm');
       const e = r.emotes.get(String(msg.name || ''));
       if (!e) return;
-      emoteBytesTotal -= e.buf.length;
+      if (!e.shared) emoteBytesTotal -= e.buf.length;
       r.emotes.delete(e.name);
       delete r.reactions[':' + e.name + ':'];
       return pushRoom(r);
@@ -823,7 +927,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(list));
     return;
   }
-  const em = url.pathname.match(/^\/emote\/([A-Z0-9]{4,8})\/([a-z0-9_]{2,20})\.png$/);
+  const em = url.pathname.match(/^\/emote\/([A-Z0-9]{4,8})\/([a-z0-9_]{2,20})\.(png|gif)$/);
   if (em) {
     const room = rooms.get(em[1]);
     const e = room && room.emotes.get(em[2]);
@@ -831,7 +935,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(404).end('not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': e.buf.length, 'Cache-Control': 'public, max-age=31536000, immutable' });
+    res.writeHead(200, { 'Content-Type': e.ext === 'gif' ? 'image/gif' : 'image/png', 'Content-Length': e.buf.length, 'Cache-Control': 'public, max-age=31536000, immutable' });
     res.end(e.buf);
     return;
   }
@@ -843,6 +947,7 @@ const server = http.createServer((req, res) => {
       needsCode: mode === 'private' && !isLocalOwner(req),
       ownerCanToggle: !!process.env.YOUTUBE_API_KEY && process.env.SEARCH_PUBLIC !== '1' && isLocalOwner(req),
       guestsOpen: searchOpenForGuests,
+      publicUrl,
     }));
     return;
   }
@@ -893,6 +998,29 @@ const server = http.createServer((req, res) => {
     searchVideos(String(url.searchParams.get('q') || '')).then(json, () => json({ error: 'failed' }));
     return;
   }
+  if (url.pathname === '/api/public-url') {
+    // solo desde la misma PC (lo llama tunel.ps1 al abrir el túnel): guarda la dirección que hay que compartir
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    if (req.method !== 'POST' || !isLocalRequest(req)) return res.end(JSON.stringify({ ok: false }));
+    const u = cleanPublicUrl(url.searchParams.get('url') || '');
+    if (!u) return res.end(JSON.stringify({ ok: false }));
+    publicUrl = u;
+    return res.end(JSON.stringify({ ok: true, url: publicUrl }));
+  }
+  if (url.pathname === '/api/playlist') {
+    const json = (obj) => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(obj));
+    };
+    const ip = clientIp(req);
+    const now = Date.now();
+    const recent = (ipPlaylist.get(ip) || []).filter((t) => now - t < 60000);
+    if (recent.length >= 6) return json({ error: 'rate' });
+    recent.push(now);
+    ipPlaylist.set(ip, recent);
+    playlistIds(String(url.searchParams.get('list') || '')).then(json, () => json({ error: 'failed' }));
+    return;
+  }
   if (url.pathname === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
     return;
@@ -931,7 +1059,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 80 * 1024 }); // 8 KB para todo, salvo addEmote (imagen)
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 512 * 1024 }); // 8 KB para todo, salvo addEmote (imagen o GIF)
 
 wss.on('connection', (ws, req) => {
   const ip = clientIp(req);
@@ -994,4 +1122,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, rooms, parseVideoId };
+module.exports = { server, rooms, parseVideoId, parseEmote, idsFromPlaylistHtml, cleanPublicUrl, packEmotes, loadPackEmotes };

@@ -54,6 +54,13 @@ Everything is optional. Copy `.env.example` to `.env`:
 
 `.env` and `iniciar.bat` are in `.gitignore`: your secrets never reach the repo. **Never commit your API key.**
 
+## Emotes, GIFs and the emote folder
+
+- Emotes can be **PNG** (auto-resized) or **animated GIF** (up to 300 KB and 512 px per side). Use them in chat as `:name:` and as reactions over the video.
+- **`packs/emotes/` folder:** drop your `.png` / `.gif` files there (the file name is the emote name) and they load automatically in **every new room**. Read at server start. Your images are not pushed to GitHub. See `packs/emotes/LEEME.txt`.
+- **Room "Link" button:** from `localhost` it copies the public tunnel address (reported by `tunel.ps1`, or set `PUBLIC_URL` in `.env`) instead of `localhost`.
+- **Playlists** are read server-side (YouTube API if a key is set, otherwise the public playlist page). Automatic Mixes (`RD...`) and private playlists can't be read.
+
 ## Hosting
 
 Needs a Node-capable host with HTTPS (not GitHub Pages). Options: your PC + Cloudflare tunnel (free), a cheap VPS, or Docker (`docker build -t sincro . && docker run -p 3000:3000 --env-file .env sincro`). Free tiers like Render may sleep after ~15 min idle and lose in-memory rooms on restart.

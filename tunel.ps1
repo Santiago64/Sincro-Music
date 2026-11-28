@@ -18,6 +18,8 @@ $shown = $false
     $shown = $true
     $url = $Matches[0]
     try { Set-Clipboard -Value $url; $copied = ' (ya copiada al portapapeles)' } catch { $copied = '' }
+    # le avisa al servidor cual es la direccion publica: asi el boton Link de la sala copia esta y no "localhost"
+    try { Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://localhost:$Port/api/public-url?url=$url" | Out-Null } catch {}
     Write-Host ''
     Write-Host '=====================================================' -ForegroundColor Green
     Write-Host '  Comparti esta direccion con tus amigos:' -ForegroundColor Green
