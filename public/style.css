@@ -263,3 +263,7 @@ img.emote.hidden { display: none; }
 .fs-chat-tab { display: none; }
 #fs-root:fullscreen.nochat .fs-chat-tab { display: block; position: absolute; right: 0; top: 28%; z-index: 20; background: rgba(0, 0, 0, .6); color: #fff; border: 0; border-radius: 10px 0 0 10px; padding: 10px 12px; font-size: 20px; opacity: .75; cursor: pointer; }
 #fs-root:fullscreen.nochat .fs-chat-tab:hover { opacity: 1; }
+
+/* botón rojo para cerrar el cuadro de resultados de búsqueda */
+.mini.close-red { background: #d93030; border-color: #d93030; color: #fff; font-weight: 700; padding: 3px 10px; }
+.mini.close-red:hover:not(:disabled) { background: #f04545; border-color: #f04545; }

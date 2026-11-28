@@ -509,7 +509,7 @@ function richText(text) {
   if (last < text.length) frag.append(document.createTextNode(text.slice(last)));
   return frag;
 }
-const emoteUrl = (e) => `/emote/${S.room.code}/${e.name}.png?v=${encodeURIComponent(e.v)}`;
+const emoteUrl = (e) => `/emote/${S.room.code}/${e.name}.${e.ext === 'gif' ? 'gif' : 'png'}?v=${encodeURIComponent(e.v)}`;
 
 function appendTo(log, msg, mine) {
   const near = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
@@ -607,6 +607,28 @@ function shrinkPng(file) {
   });
 }
 
+const GIF_MAX = 300 * 1024; // igual que el servidor
+const GIF_SIDE = 512;
+/** Lee un GIF animado sin tocarlo (achicarlo en el navegador le sacaría la animación). Devuelve {data, fmt:'gif', src}. */
+function readGif(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > GIF_MAX) return reject(new Error(t('emote.gifTooBig', { kb: Math.round(file.size / 1024) })));
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error(t('emote.readFail')));
+    fr.onload = () => {
+      const url = String(fr.result || '');
+      const img = new Image();
+      img.onload = () => {
+        if (img.width > GIF_SIDE || img.height > GIF_SIDE) return reject(new Error(t('emote.gifSide', { w: img.width, h: img.height })));
+        resolve({ data: url.split(',')[1] || '', fmt: 'gif', src: url });
+      };
+      img.onerror = () => reject(new Error(t('emote.readFail')));
+      img.src = url;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
 function buildEmoteUi() {
   $('#btn-emote').addEventListener('click', () => $('#emote-picker').classList.toggle('hidden'));
   $('#emote-close').addEventListener('click', () => $('#emote-dialog').close());
@@ -615,20 +637,26 @@ function buildEmoteUi() {
     S.emoteDraft = null;
     $('#emote-preview').classList.add('hidden');
     if (!f) return;
-    if (f.type !== 'image/png') { e.target.value = ''; return toast(t('emote.onlyPng'), 'error'); }
-    if (!$('#emote-name').value) $('#emote-name').value = f.name.replace(/\.png$/i, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20);
+    if (f.type !== 'image/png' && f.type !== 'image/gif') { e.target.value = ''; return toast(t('emote.onlyPng'), 'error'); }
+    if (!$('#emote-name').value) $('#emote-name').value = f.name.replace(/\.(png|gif)$/i, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20);
     try {
-      S.emoteDraft = await shrinkPng(f);
       const p = $('#emote-preview');
-      p.src = 'data:image/png;base64,' + S.emoteDraft;
+      if (f.type === 'image/gif') {
+        const g = await readGif(f);
+        S.emoteDraft = { data: g.data, fmt: 'gif' };
+        p.src = g.src;
+      } else {
+        S.emoteDraft = { data: await shrinkPng(f), fmt: 'png' };
+        p.src = 'data:image/png;base64,' + S.emoteDraft.data;
+      }
       p.classList.remove('hidden');
-    } catch (err) { toast(err.message, 'error'); }
+    } catch (err) { e.target.value = ''; toast(err.message, 'error'); }
   });
   $('#emote-upload').addEventListener('click', () => {
     const name = $('#emote-name').value.trim().toLowerCase();
     if (!/^[a-z0-9_]{2,20}$/.test(name)) return toast(t('emote.badName'), 'error');
     if (!S.emoteDraft) return toast(t('emote.onlyPng'), 'error');
-    send({ type: 'addEmote', name, data: S.emoteDraft });
+    send({ type: 'addEmote', name, data: S.emoteDraft.data, fmt: S.emoteDraft.fmt });
     toast(t('emote.added', { name }));
     $('#emote-file').value = '';
     $('#emote-name').value = '';
@@ -641,7 +669,8 @@ function buildEmoteUi() {
   $('#access-code').addEventListener('keydown', (e) => e.key === 'Enter' && submitAccessCode());
   $('#access-copylink').addEventListener('click', async () => {
     if (!S.searchCode) return;
-    const link = location.origin + '/#k=' + encodeURIComponent(S.searchCode);
+    const base = ['localhost', '127.0.0.1'].includes(location.hostname) && S.publicUrl ? S.publicUrl : location.origin;
+    const link = base + '/#k=' + encodeURIComponent(S.searchCode);
     try { await navigator.clipboard.writeText(link); toast(t('access.linkCopied')); } catch { toast(link); }
   });
   $('#access-cancel').addEventListener('click', () => { S.pendingQuery = null; $('#code-dialog').close(); });
@@ -847,7 +876,7 @@ function parseListInfo(v) {
 function fetchPlaylistIds(listId) {
   return new Promise((resolve, reject) => {
     if (!S.ytReady || !window.YT || !YT.Player) return reject(new Error(t('add.ytNotReady')));
-    const holder = el('div', { style: 'position:fixed;left:-9999px;top:0;width:220px;height:220px;overflow:hidden' });
+    const holder = el('div', { style: 'position:fixed;left:0;bottom:0;width:220px;height:220px;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1' });
     const inner = el('div');
     holder.append(inner);
     document.body.append(holder);
@@ -874,16 +903,35 @@ function fetchPlaylistIds(listId) {
           try { ids = e.target.getPlaylist() || []; } catch {}
           if (ids.length) finish(resolve, ids);
         },
+        onReady: (e) => {
+          // algunos navegadores no avisan el cambio de estado: se sondea la lista unos segundos
+          let tries = 0;
+          const poll = setInterval(() => {
+            if (done) return clearInterval(poll);
+            let ids = [];
+            try { ids = e.target.getPlaylist() || []; } catch {}
+            if (ids.length) { clearInterval(poll); finish(resolve, ids); }
+            else if (++tries > 20) clearInterval(poll);
+          }, 500);
+        },
         onError: () => finish(reject, new Error(t('add.listFail2'))),
       },
     });
   });
 }
 
+/** Pide los videos de la playlist al servidor (rápido y sin depender del reproductor). null si no pudo. */
+async function fetchPlaylistFromServer(listId) {
+  try {
+    const j = await (await fetch('/api/playlist?list=' + encodeURIComponent(listId), { cache: 'no-store' })).json();
+    return j && Array.isArray(j.ids) && j.ids.length ? j.ids : null;
+  } catch { return null; }
+}
+
 async function addPlaylist(listId, next) {
   toast(t('add.reading'));
   try {
-    const ids = await fetchPlaylistIds(listId);
+    const ids = (await fetchPlaylistFromServer(listId)) || (await fetchPlaylistIds(listId));
     send({ type: 'addMany', ids: ids.slice(0, 50), next });
     if (ids.length > 50) toast(t('add.listTrunc', { n: ids.length }));
   } catch (e) {
@@ -929,7 +977,7 @@ async function runSearch(q) {
     hideResults();
     return toast(t('search.err.' + (['quota', 'rate', 'short', 'disabled'].includes(data.error) ? data.error : 'failed')), 'error');
   }
-  box.replaceChildren(el('div', { class: 'head' }, el('span', { text: t('search.results', { q }) }), el('button', { class: 'mini ghost', text: t('search.close'), onclick: hideResults })));
+  box.replaceChildren(el('div', { class: 'head' }, el('span', { text: t('search.results', { q }) }), el('button', { class: 'mini danger close-red', title: t('search.close'), text: '✕', onclick: hideResults })));
   if (!data.results.length) box.append(el('div', { class: 'muted', text: t('search.none') }));
   for (const v of data.results) {
     const url = 'https://youtu.be/' + v.videoId;
@@ -973,6 +1021,7 @@ async function loadConfig() {
     S.needsCode = !!c.needsCode;
     S.ownerCanToggle = !!c.ownerCanToggle;
     S.guestsOpen = !!c.guestsOpen;
+    S.publicUrl = c.publicUrl || '';
   } catch { S.searchEnabled = false; S.needsCode = false; }
   updateAddPlaceholder();
   $('#owner-search').classList.toggle('hidden', !S.ownerCanToggle);
@@ -1176,10 +1225,10 @@ function init() {
     catch { toast(t('room.codeShow', { code: S.room.code })); }
   });
   $('#btn-link').addEventListener('click', async () => {
-    if (['localhost', '127.0.0.1'].includes(location.hostname)) {
-      return toast(t('room.localhost'), 'error');
-    }
-    const link = `${location.origin}/#${S.room.code}`;
+    const onLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (onLocal && !S.publicUrl) return toast(t('room.localhost'), 'error');
+    // desde localhost se copia la dirección pública del túnel (no "localhost", que solo funciona en tu PC)
+    const link = `${onLocal ? S.publicUrl : location.origin}/#${S.room.code}`;
     try { await navigator.clipboard.writeText(link); toast(t('room.linkCopied')); }
     catch { toast(t('room.linkShow', { link })); }
   });
